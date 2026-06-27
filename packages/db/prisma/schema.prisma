@@ -1,0 +1,228 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id            String            @id @default(uuid())
+  name          String?
+  email         String            @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  memberships   WorkspaceMember[]
+  invitations   Invitation[]      @relation("InvitedByUser")
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  expiresAt DateTime
+  token     String   @unique
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("session")
+}
+
+model Account {
+  id           String    @id @default(uuid())
+  accountId    String
+  providerId   String
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken  String?
+  refreshToken String?
+  idToken      String?
+  expiresAt    DateTime?
+  password     String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id @default(uuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("verification")
+}
+
+model Workspace {
+  id                 String            @id @default(uuid())
+  name               String
+  slug               String            @unique
+  githubInstallation String?           // GitHub App installation id
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  members            WorkspaceMember[]
+  projects           Project[]
+  invitations        Invitation[]
+  subscription       Subscription?
+  credit             AiCredit?
+  creditLogs         AiCreditLog[]
+
+  @@map("workspace")
+}
+
+model WorkspaceMember {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        String    // "OWNER" | "ADMIN" | "DEVELOPER" | "CUSTOMER"
+  createdAt   DateTime  @default(now())
+
+  @@unique([workspaceId, userId])
+  @@map("workspace_member")
+}
+
+model Invitation {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  email       String
+  role        String    // "OWNER" | "ADMIN" | "DEVELOPER" | "CUSTOMER"
+  status      String    // "PENDING" | "ACCEPTED" | "REJECTED"
+  expiresAt   DateTime
+  inviterId   String
+  inviter     User      @relation("InvitedByUser", fields: [inviterId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@map("invitation")
+}
+
+model Project {
+  id               String           @id @default(uuid())
+  name             String
+  description      String?
+  workspaceId      String
+  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  githubRepository String?          // Format: "owner/repo"
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  featureRequests  FeatureRequest[]
+  codeReviews      CodeReview[]
+
+  @@map("project")
+}
+
+model FeatureRequest {
+  id          String   @id @default(uuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  creatorId   String
+  title       String
+  description String
+  status      String   // "DRAFT" | "DISCOVERY" | "PRD_READY" | "DEVELOPMENT" | "REVIEW" | "APPROVED" | "SHIPPED"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  prd         Prd?
+
+  @@map("feature_request")
+}
+
+model Prd {
+  id                String         @id @default(uuid())
+  featureRequestId  String         @unique
+  featureRequest    FeatureRequest @relation(fields: [featureRequestId], references: [id], onDelete: Cascade)
+  problemStatement  String
+  goals             String
+  nonGoals          String
+  userStories       Json           // Array of user stories
+  acceptanceCriteria Json           // Array of criteria strings
+  edgeCases         Json           // Array of edge cases
+  successMetrics    Json           // Array of success metrics
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  tasks             Task[]
+
+  @@map("prd")
+}
+
+model Task {
+  id                String   @id @default(uuid())
+  prdId             String
+  prd               Prd      @relation(fields: [prdId], references: [id], onDelete: Cascade)
+  title             String
+  description       String
+  status            String   // "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE"
+  priority          String   // "LOW" | "MEDIUM" | "HIGH" | "URGENT"
+  estimateMinutes   Int
+  dependencies      Json     // Array of task IDs this task depends on
+  gitBranch         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("task")
+}
+
+model CodeReview {
+  id                String   @id @default(uuid())
+  projectId         String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  pullRequestNumber Int
+  commitSha         String
+  status            String   // "PENDING" | "APPROVED" | "CHANGES_REQUESTED"
+  summary           String
+  details           Json     // Structured line comments review details
+  createdAt         DateTime @default(now())
+
+  @@map("code_review")
+}
+
+model Subscription {
+  id                    String    @id @default(uuid())
+  workspaceId           String    @unique
+  workspace             Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  razorpaySubscriptionId String    @unique
+  plan                  String    // "FREE" | "PRO" | "ENTERPRISE"
+  status                String    // "ACTIVE" | "CANCELLED" | "PAST_DUE" | "INCOMPLETE"
+  currentPeriodStart    DateTime
+  currentPeriodEnd      DateTime
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@map("subscription")
+}
+
+model AiCredit {
+  id                String    @id @default(uuid())
+  workspaceId       String    @unique
+  workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  balance           Int       @default(50) // Free tier defaults to 50 credits
+  lifetimeAllocated Int       @default(50)
+  updatedAt         DateTime  @updatedAt
+
+  @@map("ai_credit")
+}
+
+model AiCreditLog {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  amount      Int       // Negative for debits, positive for topups/allocations
+  feature     String    // "DISCOVERY" | "PRD_GEN" | "TASK_GEN" | "REPO_ANALYSIS" | "PR_REVIEW" | "RELEASE_CHECK"
+  metadata    Json?     // Optional contextual metadata
+  createdAt   DateTime  @default(now())
+
+  @@map("ai_credit_log")
+}
