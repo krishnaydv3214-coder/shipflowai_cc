@@ -16,7 +16,8 @@
     "zod": "^3.24.1",
     "@repo/types": "workspace:*",
     "@repo/db": "workspace:*",
-    "@repo/ai": "workspace:*"
+    "@repo/ai": "workspace:*",
+    "@repo/github": "workspace:*"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",

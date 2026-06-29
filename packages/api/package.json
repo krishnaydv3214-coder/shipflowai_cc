@@ -17,6 +17,7 @@
     "@repo/auth": "workspace:*",
     "@repo/validators": "workspace:*",
     "@repo/inngest": "workspace:*",
+    "@repo/github": "workspace:*",
     "zod": "^3.24.1"
   },
   "devDependencies": {

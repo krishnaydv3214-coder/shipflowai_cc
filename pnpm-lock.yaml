@@ -148,6 +148,9 @@ importers:
       '@repo/db':
         specifier: workspace:*
         version: link:../db
+      '@repo/github':
+        specifier: workspace:*
+        version: link:../github
       '@repo/inngest':
         specifier: workspace:*
         version: link:../inngest
@@ -282,6 +285,9 @@ importers:
       '@repo/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config
+      '@types/node':
+        specifier: ^22.15.3
+        version: 22.20.0
       typescript:
         specifier: 5.9.2
         version: 5.9.2
@@ -294,6 +300,9 @@ importers:
       '@repo/db':
         specifier: workspace:*
         version: link:../db
+      '@repo/github':
+        specifier: workspace:*
+        version: link:../github
       '@repo/types':
         specifier: workspace:*
         version: link:../types

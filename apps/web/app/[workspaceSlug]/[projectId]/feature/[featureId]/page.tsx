@@ -31,7 +31,8 @@ export default function FeatureDiscoveryChat() {
   const projectId = params.projectId as string;
   const featureId = params.featureId as string;
  
-  const [activeTab, setActiveTab] = useState<"chat" | "prd" | "kanban">("chat");
+  const [activeTab, setActiveTab] = useState<"chat" | "prd" | "kanban" | "review">("chat");
+  const [approvalComment, setApprovalComment] = useState("");
   const [chatMessage, setChatMessage] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
  
@@ -94,6 +95,15 @@ export default function FeatureDiscoveryChat() {
   );
  
   const tasks = (tasksData as unknown as Task[]) || [];
+
+  // Fetch code review for the Reviews tab
+  const {
+    data: reviewData,
+    refetch: refetchReview,
+  } = trpc.review.getByFeatureId.useQuery(
+    { workspaceId, featureRequestId: featureId },
+    { enabled: !!workspaceId }
+  );
  
   // Auto-scroll chat to bottom when log changes
   const chatHistory: Message[] = Array.isArray(feature?.discoveryLog)
@@ -111,6 +121,9 @@ export default function FeatureDiscoveryChat() {
       refetchWorkspace();
     } else if (feature?.status === "DEVELOPMENT") {
       setActiveTab("kanban");
+      refetchWorkspace();
+    } else if (feature?.status === "REVIEW") {
+      setActiveTab("review");
       refetchWorkspace();
     }
   }, [feature?.status]);
@@ -151,6 +164,24 @@ export default function FeatureDiscoveryChat() {
       refetchTasks();
     },
   });
+
+  const submitHumanApprovalMutation = trpc.review.submitHumanApproval.useMutation({
+    onSuccess: () => {
+      setApprovalComment("");
+      refetchReview();
+      refetchFeature();
+    },
+  });
+
+  const handleHumanApproval = (decision: "APPROVE" | "REJECT") => {
+    if (submitHumanApprovalMutation.isPending || !reviewData) return;
+    submitHumanApprovalMutation.mutate({
+      workspaceId,
+      reviewId: reviewData.id,
+      decision,
+      comment: approvalComment || undefined,
+    });
+  };
  
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
@@ -332,6 +363,19 @@ export default function FeatureDiscoveryChat() {
               >
                 Kanban Board
                 {activeTab === "kanban" && (
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500" />
+                )}
+              </button>
+            )}
+            {reviewData && (
+              <button
+                onClick={() => setActiveTab("review")}
+                className={`pb-4 text-sm font-semibold transition-colors relative ${
+                  activeTab === "review" ? "text-indigo-400" : "text-slate-400 hover:text-white"
+                }`}
+              >
+                Code Review
+                {activeTab === "review" && (
                   <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500" />
                 )}
               </button>
@@ -736,6 +780,117 @@ export default function FeatureDiscoveryChat() {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Tab 4: Code Review */}
+          {activeTab === "review" && reviewData && (
+            <div className="flex-1 space-y-6 animate-in fade-in duration-300">
+              {/* Header card details */}
+              <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-6 shadow-md flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-white mb-1">Code Review for PR #{reviewData.pullRequestNumber}</h3>
+                  <p className="text-xs text-slate-400 font-mono">Commit SHA: {reviewData.commitSha}</p>
+                </div>
+                <div>
+                  <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                    reviewData.status === "APPROVED"
+                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                      : reviewData.status === "CHANGES_REQUESTED"
+                        ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                        : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                  }`}>
+                    {reviewData.status === "PENDING" ? "AWAITING HUMAN APPROVAL" : reviewData.status}
+                  </span>
+                </div>
+              </div>
+
+              {/* Summary of feedback */}
+              <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-6 shadow-md">
+                <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">AI Analysis Summary</h3>
+                <p className="text-slate-200 text-sm leading-relaxed whitespace-pre-wrap">{reviewData.summary}</p>
+              </div>
+
+              {/* Inline Comments log */}
+              <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-6 shadow-md">
+                <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">Inline Review Comments</h3>
+                
+                {(() => {
+                  const details = reviewData.details as any;
+                  const comments = Array.isArray(details?.comments) ? details.comments : [];
+                  if (comments.length === 0) {
+                    return (
+                      <div className="text-slate-500 text-sm py-4 text-center">
+                        🟢 No code issues or acceptance criteria violations identified in this diff.
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="space-y-4">
+                      {comments.map((c: any, index: number) => (
+                        <div key={index} className={`rounded-lg border p-4 text-sm ${
+                          c.isBlocking 
+                            ? "bg-rose-500/5 border-rose-500/20 text-rose-200" 
+                            : "bg-slate-900/40 border-slate-850 text-slate-300"
+                        }`}>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-mono text-xs text-indigo-400 truncate max-w-md">{c.path} : line {c.line}</span>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              c.isBlocking ? "bg-rose-500/10 text-rose-400" : "bg-slate-800 text-slate-400"
+                            }`}>
+                              {c.isBlocking ? "BLOCKING" : "NON-BLOCKING"}
+                            </span>
+                          </div>
+                          <p className="leading-relaxed">{c.body}</p>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Human Review Approval Form */}
+              <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-6 shadow-md space-y-4">
+                <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">Human Review Decision</h3>
+                
+                {reviewData.status === "PENDING" ? (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                        Approval or Revision Feedback Comments (Optional)
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={approvalComment}
+                        onChange={(e) => setApprovalComment(e.target.value)}
+                        placeholder="Provide details about human audit, auto-merge release flags or revision pointers..."
+                        className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder-slate-600 focus:border-indigo-500 focus:outline-none transition resize-none"
+                      />
+                    </div>
+                    
+                    <div className="flex gap-4">
+                      <button
+                        onClick={() => handleHumanApproval("APPROVE")}
+                        disabled={submitHumanApprovalMutation.isPending}
+                        className="flex-1 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 py-3 font-semibold text-sm hover:brightness-110 active:scale-98 transition shadow-lg shadow-emerald-600/10 disabled:opacity-50"
+                      >
+                        {submitHumanApprovalMutation.isPending ? "Processing..." : "Approve & Trigger Merge"}
+                      </button>
+                      <button
+                        onClick={() => handleHumanApproval("REJECT")}
+                        disabled={submitHumanApprovalMutation.isPending}
+                        className="flex-1 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 py-3 font-semibold text-sm hover:brightness-110 active:scale-98 transition shadow-lg shadow-rose-600/10 disabled:opacity-50"
+                      >
+                        {submitHumanApprovalMutation.isPending ? "Processing..." : "Request Changes"}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-lg bg-slate-900/40 p-4 border border-slate-850 text-slate-300 text-sm">
+                    Review outcome finalized as: <strong className="text-white ml-1">{reviewData.status}</strong>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

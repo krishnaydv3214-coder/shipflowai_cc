@@ -1,6 +1,7 @@
 import { Inngest, EventSchemas } from "inngest";
 import { prisma } from "@repo/db";
 import { getAiModel, hasCredentials, mockDiscoveryResponse, mockPrdResponse, mockTasksResponse, generateText, generateObject } from "@repo/ai";
+import { getGitHubClient, hasGithubCredentials } from "@repo/github";
 import { z } from "zod";
 
 // Define the schemas for our background events
@@ -21,6 +22,14 @@ export type Events = {
     data: {
       workspaceId: string;
       featureRequestId: string;
+    };
+  };
+  "github/pr.opened": {
+    data: {
+      installationId: string;
+      repository: string;
+      pullNumber: number;
+      commitSha: string;
     };
   };
 };
@@ -392,5 +401,308 @@ Edge Cases: ${JSON.stringify(prd.edgeCases)}`;
   }
 );
 
+// 4. PR Code Review Workflow
+export const githubPrOpened = inngest.createFunction(
+  { id: "github-pr-opened" },
+  { event: "github/pr.opened" },
+  async ({ event, step }) => {
+    const { installationId, repository, pullNumber, commitSha } = event.data;
+
+    const project = await step.run("fetch-project-by-repo", async () => {
+      const record = await prisma.project.findFirst({
+        where: { githubRepository: repository },
+      });
+      if (!record) throw new Error(`No project connected to GitHub repository ${repository}`);
+      return record;
+    });
+
+    const workspaceId = project.workspaceId;
+
+    // Deduct 10 Credits
+    await step.run("deduct-credits", async () => {
+      return prisma.$transaction(async (tx) => {
+        const credit = await tx.aiCredit.findUnique({
+          where: { workspaceId },
+        });
+
+        if (!credit || credit.balance < 10) {
+          throw new Error("Insufficient AI credits for PR review (10 required)");
+        }
+
+        await tx.aiCredit.update({
+          where: { workspaceId },
+          data: { balance: { decrement: 10 } },
+        });
+
+        await tx.aiCreditLog.create({
+          data: {
+            workspaceId,
+            amount: -10,
+            feature: "PR_REVIEW",
+            metadata: { repository, pullNumber, commitSha },
+          },
+        });
+      });
+    });
+
+    const prDetails = await step.run("fetch-pr-details", async () => {
+      if (!hasGithubCredentials()) {
+        return { branchName: "feat/mock-feature" };
+      }
+      const octokit = getGitHubClient(installationId);
+      const [owner, repoName] = repository.split("/") as [string, string];
+      const { data: pr } = await octokit.pulls.get({
+        owner,
+        repo: repoName,
+        pull_number: pullNumber,
+      });
+      return { branchName: pr.head.ref };
+    }) as any;
+
+    const branchName = prDetails.branchName as string;
+
+    const requirementContext = await step.run("fetch-requirement-context", async () => {
+      // Try to find a task matching the branch name under this project
+      const task = await prisma.task.findFirst({
+        where: {
+          gitBranch: branchName,
+          prd: {
+            featureRequest: {
+              projectId: project.id,
+            },
+          },
+        },
+        include: {
+          prd: true,
+        },
+      }) as any;
+
+      // If not found, select the most recently modified feature request/PRD for this project
+      if (!task) {
+        const latestFeature = await prisma.featureRequest.findFirst({
+          where: {
+            projectId: project.id,
+          },
+          orderBy: {
+            updatedAt: "desc",
+          },
+          include: {
+            prd: true,
+          },
+        });
+
+        if (latestFeature?.prd) {
+          return {
+            prdId: latestFeature.prd.id,
+            problemStatement: latestFeature.prd.problemStatement,
+            goals: latestFeature.prd.goals,
+            acceptanceCriteria: latestFeature.prd.acceptanceCriteria,
+          };
+        }
+      }
+
+      if (task?.prd) {
+        return {
+          prdId: task.prd.id,
+          problemStatement: task.prd.problemStatement,
+          goals: task.prd.goals,
+          acceptanceCriteria: task.prd.acceptanceCriteria,
+        };
+      }
+
+      return {
+        prdId: null,
+        problemStatement: "No PRD requirements found for this repository's project.",
+        goals: "",
+        acceptanceCriteria: [] as string[],
+      };
+    }) as any;
+
+    const checkRunId = await step.run("initialize-github-check", async () => {
+      if (!hasGithubCredentials()) {
+        return "mock-check-run-id";
+      }
+      const octokit = getGitHubClient(installationId);
+      const [owner, repoName] = repository.split("/") as [string, string];
+      const checkRun = await octokit.checks.create({
+        owner,
+        repo: repoName,
+        name: "ShipFlow AI Code Review",
+        head_sha: commitSha,
+        status: "in_progress",
+        started_at: new Date().toISOString(),
+      });
+      return checkRun.data.id.toString();
+    }) as string;
+
+    const prFiles = await step.run("fetch-pr-changed-files", async () => {
+      if (!hasGithubCredentials()) {
+        return [
+          {
+            filename: "src/index.ts",
+            patch: "@@ -1,3 +1,4 @@\n+console.log('mock change');",
+          },
+        ];
+      }
+      const octokit = getGitHubClient(installationId);
+      const [owner, repoName] = repository.split("/") as [string, string];
+      const { data: files } = await octokit.pulls.listFiles({
+        owner,
+        repo: repoName,
+        pull_number: pullNumber,
+      });
+
+      return files.map((file: any) => ({
+        filename: file.filename,
+        patch: file.patch || "",
+      }));
+    }) as Array<{ filename: string; patch: string }>;
+
+    const reviewResult = await step.run("ai-diff-analysis", async () => {
+      if (!hasCredentials()) {
+        const hasBlocking = prFiles.some((f) => f.patch.includes("console.log"));
+        return {
+          status: hasBlocking ? "CHANGES_REQUESTED" : "APPROVED",
+          summary: `ShipFlow AI local mock code review complete. Analyzed ${prFiles.length} file(s). ${hasBlocking ? "Found 1 blocking code issue (avoid using debug console.log statements)." : "No blocking issues found."}`,
+          comments: hasBlocking
+            ? [
+                {
+                  path: prFiles[0]!.filename,
+                  line: 1,
+                  body: "**[BLOCKING]** Debug logging statement found. Remove console.log before merging.",
+                  isBlocking: true,
+                },
+              ]
+            : [],
+        };
+      }
+
+      const prdContext = `PRD Problem Statement: ${requirementContext.problemStatement}
+PRD Goals: ${requirementContext.goals}
+PRD Acceptance Criteria: ${JSON.stringify(requirementContext.acceptanceCriteria)}`;
+
+      const filesContext = prFiles
+        .map((f) => `File: ${f.filename}\nDiff patch:\n${f.patch}`)
+        .join("\n\n");
+
+      const systemPrompt = `You are a Principal Software Engineer and QA Director. Analyze the changed files and unified diff patches of this Pull Request against the Product Requirement Document (PRD) requirements and acceptance criteria. Identify code issues, architectural violations, security vulnerabilities, or performance bottlenecks. Mark blocking code issues clearly. Specify the exact filename path and line number (using RIGHT side lines from the patch).`;
+
+      const prompt = `PRD Context:\n${prdContext}\n\nChanged Files Diff:\n${filesContext}\n\nPerform code review.`;
+
+      const { object } = await generateObject({
+        model: getAiModel() as any,
+        schema: z.object({
+          summary: z.string(),
+          status: z.enum(["APPROVED", "CHANGES_REQUESTED"]),
+          comments: z.array(
+            z.object({
+              path: z.string(),
+              line: z.number().int().min(1),
+              body: z.string(),
+              isBlocking: z.boolean(),
+            })
+          ),
+        }) as any,
+        system: systemPrompt,
+        prompt,
+      }) as any;
+
+      return object;
+    }) as any;
+
+    await step.run("post-github-comments", async () => {
+      if (!hasGithubCredentials()) {
+        console.log("Mock mode: skipped posting pull request review comments.");
+        return;
+      }
+      const octokit = getGitHubClient(installationId);
+      const [owner, repoName] = repository.split("/") as [string, string];
+
+      const formattedComments = (reviewResult.comments || []).map((c: any) => ({
+        path: c.path,
+        line: c.line,
+        side: "RIGHT",
+        body: `${c.isBlocking ? "**[BLOCKING]**" : "**[NON-BLOCKING]**"} ${c.body}`,
+      }));
+
+      if (formattedComments.length > 0) {
+        await octokit.pulls.createReview({
+          owner,
+          repo: repoName,
+          pull_number: pullNumber,
+          event: "COMMENT",
+          body: `ShipFlow AI code review analysis finished:\n\n**Summary:** ${reviewResult.summary}`,
+          comments: formattedComments,
+        });
+      } else {
+        await octokit.issues.createComment({
+          owner,
+          repo: repoName,
+          issue_number: pullNumber,
+          body: `ShipFlow AI code review analysis finished:\n\n**Summary:** ${reviewResult.summary}\n\n🟢 No inline comments posted. Code review approved.`,
+        });
+      }
+    });
+
+    await step.run("update-github-check-run", async () => {
+      if (!hasGithubCredentials()) {
+        console.log("Mock mode: skipped updating GitHub Check Run status.");
+        return;
+      }
+      const octokit = getGitHubClient(installationId);
+      const [owner, repoName] = repository.split("/") as [string, string];
+
+      const hasBlocking = (reviewResult.comments || []).some((c: any) => c.isBlocking);
+
+      await octokit.checks.update({
+        owner,
+        repo: repoName,
+        check_run_id: parseInt(checkRunId),
+        status: "completed",
+        conclusion: hasBlocking ? "failure" : "neutral",
+        completed_at: new Date().toISOString(),
+        output: {
+          title: hasBlocking ? "ShipFlow AI: Changes Requested" : "ShipFlow AI: Review Completed",
+          summary: reviewResult.summary,
+        },
+      });
+    });
+
+    await step.run("save-code-review-record", async () => {
+      return prisma.$transaction(async (tx) => {
+        await tx.codeReview.create({
+          data: {
+            projectId: project.id,
+            pullRequestNumber: pullNumber,
+            commitSha: commitSha,
+            status: reviewResult.status === "CHANGES_REQUESTED" ? "CHANGES_REQUESTED" : "PENDING",
+            summary: reviewResult.summary,
+            details: {
+              comments: reviewResult.comments || [],
+              checkRunId: checkRunId as string,
+              installationId: installationId as string,
+            },
+          },
+        });
+
+        // Update the feature request status to REVIEW if associated with the branch
+        const associatedFeatureId = requirementContext.prdId
+          ? await tx.prd.findUnique({
+              where: { id: requirementContext.prdId },
+              select: { featureRequestId: true },
+            }).then((p) => p?.featureRequestId)
+          : null;
+
+        if (associatedFeatureId) {
+          await tx.featureRequest.update({
+            where: { id: associatedFeatureId },
+            data: { status: "REVIEW" },
+          });
+        }
+      });
+    });
+  }
+);
+
 // Export list of functions for mounting
-export const functions = [discoveryMessageReceived, prdGenerate, tasksGenerate];
+export const functions = [discoveryMessageReceived, prdGenerate, tasksGenerate, githubPrOpened];
