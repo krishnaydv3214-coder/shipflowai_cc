@@ -211,4 +211,151 @@ export const featureRouter = createTRPCRouter({
 
       return updatedFeature;
     }),
+
+  triggerTasksGeneration: workspaceProcedure
+    .input(z.object({ featureRequestId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const feature = await ctx.prisma.featureRequest.findFirst({
+        where: {
+          id: input.featureRequestId,
+          project: {
+            workspaceId: ctx.workspace.id,
+          },
+        },
+        include: {
+          prd: true,
+        },
+      });
+
+      if (!feature) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Feature request not found.",
+        });
+      }
+
+      if (!feature.prd) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Cannot generate tasks without a product requirement document (PRD). Please generate the PRD first.",
+        });
+      }
+
+      // Dispatch to Inngest background event
+      await inngest.send({
+        name: "tasks/generate",
+        data: {
+          workspaceId: ctx.workspace.id,
+          featureRequestId: input.featureRequestId,
+        },
+      });
+
+      return feature;
+    }),
+
+  getTasks: workspaceProcedure
+    .input(z.object({ featureRequestId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      // Find the associated PRD
+      const feature = await ctx.prisma.featureRequest.findFirst({
+        where: {
+          id: input.featureRequestId,
+          project: {
+            workspaceId: ctx.workspace.id,
+          },
+        },
+        include: {
+          prd: true,
+        },
+      });
+
+      if (!feature || !feature.prd) {
+        return [];
+      }
+
+      return ctx.prisma.task.findMany({
+        where: {
+          prdId: feature.prd.id,
+        },
+        orderBy: {
+          createdAt: "asc",
+        },
+      });
+    }),
+
+  updateTaskStatus: workspaceProcedure
+    .input(
+      z.object({
+        taskId: z.string(),
+        status: z.enum(["TODO", "IN_PROGRESS", "REVIEW", "DONE"]),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const task = await ctx.prisma.task.findFirst({
+        where: {
+          id: input.taskId,
+          prd: {
+            featureRequest: {
+              project: {
+                workspaceId: ctx.workspace.id,
+              },
+            },
+          },
+        },
+      });
+
+      if (!task) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Task not found in this workspace.",
+        });
+      }
+
+      return ctx.prisma.task.update({
+        where: { id: input.taskId },
+        data: {
+          status: input.status,
+        },
+      });
+    }),
+
+  updateTask: workspaceProcedure
+    .input(
+      z.object({
+        taskId: z.string(),
+        title: z.string().min(1).optional(),
+        description: z.string().optional(),
+        priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
+        estimateMinutes: z.number().int().min(1).optional(),
+        gitBranch: z.string().nullable().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const task = await ctx.prisma.task.findFirst({
+        where: {
+          id: input.taskId,
+          prd: {
+            featureRequest: {
+              project: {
+                workspaceId: ctx.workspace.id,
+              },
+            },
+          },
+        },
+      });
+
+      if (!task) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Task not found in this workspace.",
+        });
+      }
+
+      const { taskId, ...updateData } = input;
+
+      return ctx.prisma.task.update({
+        where: { id: taskId },
+        data: updateData,
+      });
+    }),
 });

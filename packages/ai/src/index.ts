@@ -63,5 +63,38 @@ export const mockPrdResponse = (title: string, description: string) => {
   };
 };
 
+export const mockTasksResponse = (title: string) => {
+  return [
+    {
+      title: "Database Schema Design & Migration",
+      description: `Define target database schemas, relationships, and index configurations needed for the "${title}" feature. Run Prisma migration script.`,
+      priority: "HIGH",
+      estimateMinutes: 120,
+      dependencyTitles: [] as string[],
+    },
+    {
+      title: "Backend APIs & Services implementation",
+      description: `Configure tRPC router procedures, link data mutations, and build validation schemas for "${title}".`,
+      priority: "MEDIUM",
+      estimateMinutes: 180,
+      dependencyTitles: ["Database Schema Design & Migration"],
+    },
+    {
+      title: "Frontend Components & Interface layout",
+      description: `Develop premium user interfaces with dynamic state changes, credit indicator displays, and error alerts for "${title}".`,
+      priority: "LOW",
+      estimateMinutes: 240,
+      dependencyTitles: ["Backend APIs & Services implementation"],
+    },
+    {
+      title: "E2E Integration & Verification testing",
+      description: `Perform end-to-end integration flows validation, compile checks, and code linters audits to guarantee 0 errors.`,
+      priority: "HIGH",
+      estimateMinutes: 60,
+      dependencyTitles: ["Backend APIs & Services implementation", "Frontend Components & Interface layout"],
+    },
+  ];
+};
+
 // Export Vercel AI SDK methods
 export { sdkGenerateText as generateText, sdkGenerateObject as generateObject };
