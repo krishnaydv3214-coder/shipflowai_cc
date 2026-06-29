@@ -13,12 +13,14 @@
   },
   "dependencies": {
     "inngest": "^3.26.0",
+    "zod": "^3.24.1",
     "@repo/types": "workspace:*",
     "@repo/db": "workspace:*",
     "@repo/ai": "workspace:*"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
+    "@types/node": "^22.15.3",
     "typescript": "5.9.2"
   }
 }

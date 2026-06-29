@@ -1,4 +1,4 @@
-import { Inngest } from "inngest";
+import { Inngest, EventSchemas } from "inngest";
 import { prisma } from "@repo/db";
 import { getAiModel, hasCredentials, mockDiscoveryResponse, mockPrdResponse, mockTasksResponse, generateText, generateObject } from "@repo/ai";
 import { z } from "zod";
@@ -28,7 +28,7 @@ export type Events = {
 // Create Inngest client
 export const inngest = new Inngest({
   id: "shipflow-ai",
-  schemas: (t) => t.type<Events>(),
+  schemas: new EventSchemas().fromRecord<Events>(),
 });
 
 // 1. Discovery Chat Workflow
@@ -191,7 +191,7 @@ ${history.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`
 Format the output strictly as a structured JSON object according to the schema.`;
 
       const { object } = await generateObject({
-        model: getAiModel(),
+        model: getAiModel() as any,
         schema: z.object({
           problemStatement: z.string(),
           goals: z.array(z.string()),
@@ -200,13 +200,13 @@ Format the output strictly as a structured JSON object according to the schema.`
           acceptanceCriteria: z.array(z.string()),
           edgeCases: z.array(z.string()),
           successMetrics: z.array(z.string()),
-        }),
+        }) as any,
         system: systemPrompt,
         prompt,
-      });
+      }) as any;
 
       return object;
-    });
+    }) as any;
 
     // Save PRD and set status to PRD_READY
     await step.run("save-prd-to-db", async () => {
@@ -309,7 +309,7 @@ Edge Cases: ${JSON.stringify(prd.edgeCases)}`;
       const prompt = `Generate engineering tasks for the following PRD:\n\n${prdContext}`;
 
       const { object } = await generateObject({
-        model: getAiModel(),
+        model: getAiModel() as any,
         schema: z.object({
           tasks: z.array(
             z.object({
@@ -319,14 +319,14 @@ Edge Cases: ${JSON.stringify(prd.edgeCases)}`;
               estimateMinutes: z.number().int().min(1),
               dependencyTitles: z.array(z.string()),
             })
-          ),
-        }),
+          ) as any,
+        }) as any,
         system: systemPrompt,
         prompt,
-      });
+      }) as any;
 
       return object.tasks;
-    });
+    }) as any[];
 
     // Save tasks inside database transactionally
     await step.run("save-tasks-to-db", async () => {
