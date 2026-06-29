@@ -145,6 +145,9 @@ importers:
       '@repo/db':
         specifier: workspace:*
         version: link:../db
+      '@repo/inngest':
+        specifier: workspace:*
+        version: link:../inngest
       '@repo/validators':
         specifier: workspace:*
         version: link:../validators
@@ -282,6 +285,12 @@ importers:
 
   packages/inngest:
     dependencies:
+      '@repo/ai':
+        specifier: workspace:*
+        version: link:../ai
+      '@repo/db':
+        specifier: workspace:*
+        version: link:../db
       '@repo/types':
         specifier: workspace:*
         version: link:../types

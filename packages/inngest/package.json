@@ -13,7 +13,9 @@
   },
   "dependencies": {
     "inngest": "^3.26.0",
-    "@repo/types": "workspace:*"
+    "@repo/types": "workspace:*",
+    "@repo/db": "workspace:*",
+    "@repo/ai": "workspace:*"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
