@@ -252,6 +252,33 @@ export const tasksGenerate = inngest.createFunction(
   async ({ event, step }) => {
     const { workspaceId, featureRequestId } = event.data;
 
+    // Deduct 2 Credits
+    await step.run("deduct-credits", async () => {
+      return prisma.$transaction(async (tx) => {
+        const credit = await tx.aiCredit.findUnique({
+          where: { workspaceId },
+        });
+
+        if (!credit || credit.balance < 2) {
+          throw new Error("Insufficient AI credits");
+        }
+
+        await tx.aiCredit.update({
+          where: { workspaceId },
+          data: { balance: { decrement: 2 } },
+        });
+
+        await tx.aiCreditLog.create({
+          data: {
+            workspaceId,
+            amount: -2,
+            feature: "TASK_GEN",
+            metadata: { featureRequestId },
+          },
+        });
+      });
+    });
+
     // Fetch feature request & PRD
     const featureWithPrd = await step.run("fetch-feature-and-prd", async () => {
       const record = await prisma.featureRequest.findUnique({

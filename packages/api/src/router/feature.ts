@@ -241,6 +241,18 @@ export const featureRouter = createTRPCRouter({
         });
       }
 
+      // Check credit balance before starting Tasks generation (costs 2 credits)
+      const credit = await ctx.prisma.aiCredit.findUnique({
+        where: { workspaceId: ctx.workspace.id },
+      });
+
+      if (!credit || credit.balance < 2) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Insufficient AI credits to generate tasks (2 credits required).",
+        });
+      }
+
       // Dispatch to Inngest background event
       await inngest.send({
         name: "tasks/generate",
