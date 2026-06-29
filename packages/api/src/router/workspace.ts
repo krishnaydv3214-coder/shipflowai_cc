@@ -61,6 +61,7 @@ export const workspaceRouter = createTRPCRouter({
         where: { slug: input.slug },
         include: {
           credit: true,
+          subscription: true,
         },
       });
 

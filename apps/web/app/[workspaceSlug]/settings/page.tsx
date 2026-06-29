@@ -19,11 +19,80 @@ export default function WorkspaceSettingsPage() {
   const [inviteError, setInviteError] = useState("");
   const [inviteSuccess, setInviteSuccess] = useState(false);
 
+  const [checkoutError, setCheckoutError] = useState("");
+
   const {
     data: workspace,
     isLoading: loadingWorkspace,
     refetch: refetchWorkspace,
   } = trpc.workspace.getBySlug.useQuery({ slug });
+
+  const { data: creditData, refetch: refetchCredits } = trpc.billing.getCredits.useQuery(
+    { workspaceId: workspace?.id || "" },
+    { enabled: !!workspace?.id }
+  );
+
+  const createSubscriptionSessionMutation = trpc.billing.createSubscriptionSession.useMutation({
+    onSuccess: (session) => {
+      if (session.isSimulated && session.shortUrl) {
+        window.location.href = session.shortUrl;
+        return;
+      }
+
+      const options = {
+        key: session.keyId,
+        subscription_id: session.subscriptionId,
+        name: "ShipFlow AI",
+        description: "Monthly subscription package upgrade",
+        handler: async function (response: any) {
+          refetchWorkspace();
+          refetchCredits();
+          alert("Upgrade completed successfully! Your subscription is now active.");
+        },
+        theme: {
+          color: "#6366f1",
+        },
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    },
+    onError: (err) => {
+      setCheckoutError(err.message || "Failed to initiate payment checkout.");
+    },
+  });
+
+  const loadRazorpayScript = () => {
+    return new Promise((resolve) => {
+      if ((window as any).Razorpay) {
+        resolve(true);
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
+  const handleUpgradePlan = async (plan: "PRO" | "ENTERPRISE") => {
+    if (createSubscriptionSessionMutation.isPending || !workspace) return;
+    setCheckoutError("");
+
+    const isLoaded = await loadRazorpayScript();
+    if (!isLoaded && !createSubscriptionSessionMutation.isPending) {
+      if (process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID) {
+        setCheckoutError("Failed to load payment checkout SDK.");
+        return;
+      }
+    }
+
+    createSubscriptionSessionMutation.mutate({
+      workspaceId: workspace.id,
+      plan,
+    });
+  };
 
   React.useEffect(() => {
     if (workspace) {
@@ -192,6 +261,67 @@ export default function WorkspaceSettingsPage() {
               </form>
             </div>
 
+            {/* Billing & Subscription Panel */}
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-xl backdrop-blur-md space-y-4">
+              <h2 className="text-lg font-bold">Billing & Subscription</h2>
+              
+              {checkoutError && (
+                <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400 font-sans">
+                  {checkoutError}
+                </div>
+              )}
+
+              {/* Current Subscription Tier */}
+              <div className="rounded-xl bg-slate-950 p-4 border border-slate-850 space-y-2">
+                <div className="flex justify-between text-xs">
+                  <span className="text-slate-400">Current Plan</span>
+                  <span className="font-bold text-white uppercase">{workspace?.subscription?.plan || "FREE"}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-slate-400">Status</span>
+                  <span className="font-bold text-emerald-400 uppercase">{workspace?.subscription?.status || "ACTIVE"}</span>
+                </div>
+                {workspace?.subscription?.currentPeriodEnd && (
+                  <div className="flex justify-between text-[10px] text-slate-500 border-t border-slate-900 pt-2 mt-1">
+                    <span>Renews on</span>
+                    <span>{new Date(workspace.subscription.currentPeriodEnd).toLocaleDateString()}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Credit Balance */}
+              <div className="rounded-xl bg-slate-950 p-4 border border-slate-850 flex justify-between items-center">
+                <div>
+                  <span className="block text-[10px] uppercase font-bold text-slate-500 tracking-wider">AI Credit Balance</span>
+                  <span className="text-2xl font-extrabold text-white">{creditData?.credit?.balance ?? 50}</span>
+                </div>
+                <div className="text-right text-[10px] text-slate-500">
+                  <span>Lifetime Allocated: </span>
+                  <span className="font-mono text-slate-300 block">{creditData?.credit?.lifetimeAllocated ?? 50}</span>
+                </div>
+              </div>
+
+              {/* Upgrade Trigger Options */}
+              {isOwnerOrAdmin && (!workspace?.subscription || workspace?.subscription.plan === "FREE") && (
+                <div className="space-y-3 pt-2">
+                  <button
+                    onClick={() => handleUpgradePlan("PRO")}
+                    disabled={createSubscriptionSessionMutation.isPending}
+                    className="w-full rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 py-2.5 font-semibold text-xs text-white shadow-lg transition hover:brightness-110 active:scale-98 disabled:opacity-50 cursor-pointer"
+                  >
+                    {createSubscriptionSessionMutation.isPending ? "Connecting..." : "Upgrade to Pro ($29/mo)"}
+                  </button>
+                  <button
+                    onClick={() => handleUpgradePlan("ENTERPRISE")}
+                    disabled={createSubscriptionSessionMutation.isPending}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900/40 py-2.5 font-semibold text-xs text-slate-300 hover:bg-slate-850 hover:text-white transition disabled:opacity-50 cursor-pointer"
+                  >
+                    Contact Enterprise Tier
+                  </button>
+                </div>
+              )}
+            </div>
+
             {/* Invite Member Panel */}
             {isOwnerOrAdmin && (
               <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-xl backdrop-blur-md">
@@ -308,6 +438,44 @@ export default function WorkspaceSettingsPage() {
                             )}
                           </td>
                         )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* AI Credits Ledger Logs */}
+          <div className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/60 p-8 shadow-2xl backdrop-blur-md">
+            <h2 className="text-xl font-bold mb-6">AI Credits Transaction History</h2>
+            
+            {!creditData || creditData.logs.length === 0 ? (
+              <div className="text-slate-500 text-sm py-4 text-center">
+                No credit transactions recorded yet.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-400 font-semibold">
+                      <th className="py-3 px-4">Action / Feature</th>
+                      <th className="py-3 px-4">Amount</th>
+                      <th className="py-3 px-4 text-right">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {creditData.logs.map((log: any) => (
+                      <tr key={log.id} className="border-b border-slate-800/40 hover:bg-slate-900/20 transition-colors">
+                        <td className="py-4 px-4 font-semibold text-slate-200 uppercase tracking-wider text-xs">
+                          {log.feature.replace(/_/g, " ")}
+                        </td>
+                        <td className={`py-4 px-4 font-bold ${log.amount < 0 ? "text-rose-400" : "text-emerald-400"}`}>
+                          {log.amount > 0 ? `+${log.amount}` : log.amount}
+                        </td>
+                        <td className="py-4 px-4 text-right text-xs text-slate-500 font-mono">
+                          {new Date(log.createdAt).toLocaleString()}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

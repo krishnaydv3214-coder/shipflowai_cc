@@ -42,6 +42,8 @@ export default function ProjectDashboard() {
     { enabled: !!workspaceId }
   );
 
+  const featuresList = (features as any[]) || [];
+
   // tRPC Mutations
   const createFeatureMutation = trpc.feature.create.useMutation({
     onSuccess: () => {
@@ -176,7 +178,7 @@ export default function ProjectDashboard() {
 
             {loadingFeatures ? (
               <div className="text-slate-400">Loading features...</div>
-            ) : features && features.length > 0 ? (
+            ) : featuresList.length > 0 ? (
               <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/20 backdrop-blur-sm shadow-xl">
                 <table className="w-full border-collapse text-left text-sm">
                   <thead>
@@ -189,7 +191,7 @@ export default function ProjectDashboard() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
-                    {features.map((feat) => {
+                    {featuresList.map((feat) => {
                       const chatLog = Array.isArray(feat.discoveryLog)
                         ? (feat.discoveryLog as any[])
                         : [];

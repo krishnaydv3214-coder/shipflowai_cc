@@ -28,6 +28,7 @@
     "@trpc/server": "^11.0.0-rc.661",
     "@tanstack/react-query": "^5.62.7",
     "zod": "^3.24.1",
+    "inngest": "^3.26.0",
     "@tailwindcss/postcss": "^4.3.1",
     "next": "16.2.0",
     "postcss": "^8.5.15",

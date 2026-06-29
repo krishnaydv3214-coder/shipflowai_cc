@@ -54,17 +54,17 @@ export default function FeatureDiscoveryChat() {
     data: feature,
     isLoading: loadingFeature,
     refetch: refetchFeature,
-  } = trpc.feature.get.useQuery(
+  } = (trpc.feature.get as any).useQuery(
     { workspaceId, featureRequestId: featureId },
     {
       enabled: !!workspaceId,
-      refetchInterval: (query) => {
+      refetchInterval: (query: any) => {
         const feat = query.state.data;
         if (!feat) return false;
         
         // If status is DISCOVERY or last message is from user, poll every 2s
         const log = Array.isArray(feat.discoveryLog) ? (feat.discoveryLog as Message[]) : [];
-        const isWaitingForAi = log.length > 0 && log[log.length - 1].role === "user";
+        const isWaitingForAi = log.length > 0 && log[log.length - 1]?.role === "user";
         
         if (feat.status === "DISCOVERY" || isWaitingForAi) {
           return 2000;
@@ -79,11 +79,11 @@ export default function FeatureDiscoveryChat() {
     data: tasksData,
     refetch: refetchTasks,
     isLoading: loadingTasks,
-  } = trpc.feature.getTasks.useQuery(
+  } = (trpc.feature.getTasks as any).useQuery(
     { workspaceId, featureRequestId: featureId },
     {
       enabled: !!workspaceId,
-      refetchInterval: (query) => {
+      refetchInterval: (query: any) => {
         const list = query.state.data;
         // Poll every 2s if feature status is DEVELOPMENT but no tasks have been created/loaded yet
         if (feature?.status === "DEVELOPMENT" && (!list || list.length === 0)) {
@@ -100,10 +100,12 @@ export default function FeatureDiscoveryChat() {
   const {
     data: reviewData,
     refetch: refetchReview,
-  } = trpc.review.getByFeatureId.useQuery(
+  } = (trpc.review.getByFeatureId as any).useQuery(
     { workspaceId, featureRequestId: featureId },
     { enabled: !!workspaceId }
   );
+
+  const review: any = reviewData;
  
   // Auto-scroll chat to bottom when log changes
   const chatHistory: Message[] = Array.isArray(feature?.discoveryLog)
@@ -213,18 +215,18 @@ export default function FeatureDiscoveryChat() {
     const statusOrder: Task["status"][] = ["TODO", "IN_PROGRESS", "REVIEW", "DONE"];
     const currentIndex = statusOrder.indexOf(currentStatus as Task["status"]);
     let newIndex = currentIndex;
- 
+
     if (direction === "left" && currentIndex > 0) {
       newIndex = currentIndex - 1;
     } else if (direction === "right" && currentIndex < statusOrder.length - 1) {
       newIndex = currentIndex + 1;
     }
- 
+
     if (newIndex !== currentIndex) {
       updateTaskStatusMutation.mutate({
         workspaceId,
         taskId,
-        status: statusOrder[newIndex],
+        status: statusOrder[newIndex]!,
       });
     }
   };
@@ -278,10 +280,10 @@ export default function FeatureDiscoveryChat() {
   }
  
   const isWaitingForAi =
-    chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === "user";
+    chatHistory.length > 0 && chatHistory[chatHistory.length - 1]?.role === "user";
  
   // Parse PRD JSON fields if they are arrays or use fallbacks
-  const prd = feature.prd;
+  const prd = feature?.prd;
   const userStories: string[] = Array.isArray(prd?.userStories) ? (prd.userStories as string[]) : [];
   const acceptanceCriteria: string[] = Array.isArray(prd?.acceptanceCriteria)
     ? (prd.acceptanceCriteria as string[])
@@ -290,6 +292,9 @@ export default function FeatureDiscoveryChat() {
   const successMetrics: string[] = Array.isArray(prd?.successMetrics)
     ? (prd.successMetrics as string[])
     : [];
+
+  const goalsStr: string = typeof prd?.goals === "string" ? (prd.goals as string) : "";
+  const nonGoalsStr: string = typeof prd?.nonGoals === "string" ? (prd.nonGoals as string) : "";
  
   // Group tasks by status columns
   const todoTasks = tasks.filter((t) => t.status === "TODO");
@@ -367,7 +372,7 @@ export default function FeatureDiscoveryChat() {
                 )}
               </button>
             )}
-            {reviewData && (
+            {review && (
               <button
                 onClick={() => setActiveTab("review")}
                 className={`pb-4 text-sm font-semibold transition-colors relative ${
@@ -473,7 +478,7 @@ export default function FeatureDiscoveryChat() {
                     <section className="rounded-xl border border-slate-800 bg-slate-900/20 p-6 shadow-md">
                       <h3 className="text-lg font-bold text-emerald-400 mb-3">2. Goals</h3>
                       <ul className="list-disc list-inside space-y-2 text-slate-300 text-sm">
-                        {prd.goals.split("\n").map((g, i) => (
+                        {goalsStr.split("\n").map((g, i) => (
                           <li key={i}>{g}</li>
                         ))}
                       </ul>
@@ -481,7 +486,7 @@ export default function FeatureDiscoveryChat() {
                     <section className="rounded-xl border border-slate-800 bg-slate-900/20 p-6 shadow-md">
                       <h3 className="text-lg font-bold text-rose-400 mb-3">3. Non-Goals</h3>
                       <ul className="list-disc list-inside space-y-2 text-slate-300 text-sm">
-                        {prd.nonGoals.split("\n").map((g, i) => (
+                        {nonGoalsStr.split("\n").map((g, i) => (
                           <li key={i}>{g}</li>
                         ))}
                       </ul>
@@ -784,23 +789,23 @@ export default function FeatureDiscoveryChat() {
           )}
 
           {/* Tab 4: Code Review */}
-          {activeTab === "review" && reviewData && (
+          {activeTab === "review" && review && (
             <div className="flex-1 space-y-6 animate-in fade-in duration-300">
               {/* Header card details */}
               <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-6 shadow-md flex items-center justify-between">
                 <div>
-                  <h3 className="text-lg font-bold text-white mb-1">Code Review for PR #{reviewData.pullRequestNumber}</h3>
-                  <p className="text-xs text-slate-400 font-mono">Commit SHA: {reviewData.commitSha}</p>
+                  <h3 className="text-lg font-bold text-white mb-1">Code Review for PR #{review.pullRequestNumber}</h3>
+                  <p className="text-xs text-slate-400 font-mono">Commit SHA: {review.commitSha}</p>
                 </div>
                 <div>
                   <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                    reviewData.status === "APPROVED"
+                    review.status === "APPROVED"
                       ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                      : reviewData.status === "CHANGES_REQUESTED"
+                      : review.status === "CHANGES_REQUESTED"
                         ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
                         : "bg-amber-500/10 text-amber-400 border-amber-500/20"
                   }`}>
-                    {reviewData.status === "PENDING" ? "AWAITING HUMAN APPROVAL" : reviewData.status}
+                    {review.status === "PENDING" ? "AWAITING HUMAN APPROVAL" : review.status}
                   </span>
                 </div>
               </div>
@@ -808,7 +813,7 @@ export default function FeatureDiscoveryChat() {
               {/* Summary of feedback */}
               <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-6 shadow-md">
                 <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">AI Analysis Summary</h3>
-                <p className="text-slate-200 text-sm leading-relaxed whitespace-pre-wrap">{reviewData.summary}</p>
+                <p className="text-slate-200 text-sm leading-relaxed whitespace-pre-wrap">{review.summary}</p>
               </div>
 
               {/* Inline Comments log */}
@@ -816,7 +821,7 @@ export default function FeatureDiscoveryChat() {
                 <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">Inline Review Comments</h3>
                 
                 {(() => {
-                  const details = reviewData.details as any;
+                  const details = review.details as any;
                   const comments = Array.isArray(details?.comments) ? details.comments : [];
                   if (comments.length === 0) {
                     return (
@@ -853,7 +858,7 @@ export default function FeatureDiscoveryChat() {
               <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-6 shadow-md space-y-4">
                 <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">Human Review Decision</h3>
                 
-                {reviewData.status === "PENDING" ? (
+                {review.status === "PENDING" ? (
                   <div className="space-y-4">
                     <div>
                       <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
@@ -887,7 +892,7 @@ export default function FeatureDiscoveryChat() {
                   </div>
                 ) : (
                   <div className="rounded-lg bg-slate-900/40 p-4 border border-slate-850 text-slate-300 text-sm">
-                    Review outcome finalized as: <strong className="text-white ml-1">{reviewData.status}</strong>
+                    Review outcome finalized as: <strong className="text-white ml-1">{review.status}</strong>
                   </div>
                 )}
               </div>
@@ -923,7 +928,7 @@ export default function FeatureDiscoveryChat() {
                   onClick={handleGeneratePrd}
                   disabled={
                     triggerPrdGenMutation.isPending ||
-                    (workspace?.credit?.balance && workspace.credit.balance < 5)
+                    (workspace?.credit?.balance !== undefined && workspace.credit.balance < 5)
                   }
                   className="w-full rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 py-3 font-semibold text-sm text-white shadow-lg shadow-indigo-600/15 hover:brightness-110 active:scale-98 transition disabled:opacity-50 flex items-center justify-center gap-2"
                 >
@@ -940,13 +945,16 @@ export default function FeatureDiscoveryChat() {
               <div className="space-y-3">
                 <button
                   onClick={handleGenerateTasks}
-                  disabled={triggerTasksGenMutation.isPending}
+                  disabled={
+                    triggerTasksGenMutation.isPending ||
+                    (workspace?.credit?.balance !== undefined && workspace.credit.balance < 2)
+                  }
                   className="w-full rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 py-3 font-semibold text-sm text-white shadow-lg shadow-indigo-600/15 hover:brightness-110 active:scale-98 transition disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {triggerTasksGenMutation.isPending ? "Generating Tasks..." : "Generate Kanban Tasks"}
                 </button>
                 <div className="text-center text-slate-500 text-[10px]">
-                  Analyzes acceptance criteria and creates structured task lists. Cost: Free (0 credits).
+                  Deducts 2 AI credits. Analyzes acceptance criteria and creates structured task lists.
                 </div>
               </div>
             )}
