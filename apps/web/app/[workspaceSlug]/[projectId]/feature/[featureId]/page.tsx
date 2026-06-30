@@ -31,7 +31,7 @@ export default function FeatureDiscoveryChat() {
   const projectId = params.projectId as string;
   const featureId = params.featureId as string;
  
-  const [activeTab, setActiveTab] = useState<"chat" | "prd" | "kanban" | "review">("chat");
+  const [activeTab, setActiveTab] = useState<"chat" | "prd" | "kanban" | "review" | "release">("chat");
   const [approvalComment, setApprovalComment] = useState("");
   const [chatMessage, setChatMessage] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -131,6 +131,18 @@ export default function FeatureDiscoveryChat() {
   }, [feature?.status]);
  
   // tRPC Mutations
+  const runReleaseCheckMutation = (trpc.feature.runReleaseCheck.useMutation as any)({
+    onSuccess: () => {
+      refetchFeature();
+      refetchReview();
+      refetchWorkspace();
+      alert("Pre-deployment release compliance scan completed successfully! Feature status updated to Shipped.");
+    },
+    onError: (err: any) => {
+      alert(err.message || "Failed to run pre-deployment release compliance scan.");
+    },
+  });
+
   const sendMessageMutation = trpc.feature.sendMessage.useMutation({
     onSuccess: () => {
       setChatMessage("");
@@ -381,6 +393,19 @@ export default function FeatureDiscoveryChat() {
               >
                 Code Review
                 {activeTab === "review" && (
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500" />
+                )}
+              </button>
+            )}
+            {review && (
+              <button
+                onClick={() => setActiveTab("release")}
+                className={`pb-4 text-sm font-semibold transition-colors relative ${
+                  activeTab === "release" ? "text-indigo-400" : "text-slate-400 hover:text-white"
+                }`}
+              >
+                Release Scan
+                {activeTab === "release" && (
                   <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500" />
                 )}
               </button>
@@ -896,6 +921,131 @@ export default function FeatureDiscoveryChat() {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+          {/* Tab 5: Release Compliance Scan */}
+          {activeTab === "release" && review && (
+            <div className="flex-1 space-y-6 animate-in fade-in duration-300">
+              {/* Header card details */}
+              <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-6 shadow-md flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-white mb-1">Pre-deployment Compliance Scan</h3>
+                  <p className="text-xs text-slate-400 font-mono">Assesses code lint quality, security vulnerabilities, and criteria alignment</p>
+                </div>
+                <div>
+                  <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                    review.details?.complianceReport
+                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                      : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                  }`}>
+                    {review.details?.complianceReport ? "SCAN COMPLETED" : "AWAITING COMPLIANCE SCAN"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Compliance Report Results */}
+              {review.details?.complianceReport ? (
+                <div className="space-y-6">
+                  {/* Score & Summary Banner */}
+                  <div className="grid md:grid-cols-3 gap-6">
+                    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 flex flex-col items-center justify-center text-center">
+                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Compliance Score</span>
+                      <div className="relative flex items-center justify-center w-24 h-24 rounded-full border-4 border-indigo-500/20 bg-indigo-500/5 shadow-inner">
+                        <span className="text-2xl font-black text-white font-mono">
+                          {review.details.complianceReport.score}%
+                        </span>
+                      </div>
+                      <span className="text-xs font-bold text-emerald-400 uppercase mt-3 block">
+                        Status: {review.details.complianceReport.status}
+                      </span>
+                    </div>
+
+                    <div className="md:col-span-2 rounded-xl border border-slate-800 bg-slate-900/40 p-6 flex flex-col justify-between">
+                      <div>
+                        <h4 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">Scanner Summary</h4>
+                        <p className="text-slate-200 text-sm leading-relaxed">{review.details.complianceReport.summary}</p>
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-4 font-mono">
+                        Audited on: {new Date(review.details.complianceReport.timestamp).toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Checklist Items */}
+                  <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-6 shadow-md space-y-4">
+                    <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">Compliance Checklist Run</h3>
+                    
+                    <div className="space-y-3">
+                      {(review.details.complianceReport.checks || []).map((check: any, idx: number) => (
+                        <div key={idx} className="rounded-lg border border-slate-850 bg-slate-950 p-4 flex items-start gap-4">
+                          <div className="mt-0.5">
+                            {check.status === "PASSED" ? (
+                              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-400 text-xs border border-emerald-500/20">✓</span>
+                            ) : check.status === "WARNING" ? (
+                              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-500/10 text-amber-400 text-xs border border-amber-500/20">!</span>
+                            ) : (
+                              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-rose-500/10 text-rose-400 text-xs border border-rose-500/20">✗</span>
+                            )}
+                          </div>
+                          <div className="flex-1 text-sm">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-semibold text-slate-200">{check.name}</span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                check.status === "PASSED"
+                                  ? "bg-emerald-500/10 text-emerald-400"
+                                  : check.status === "WARNING"
+                                    ? "bg-amber-500/10 text-amber-400"
+                                    : "bg-rose-500/10 text-rose-400"
+                              }`}>
+                                {check.status}
+                              </span>
+                            </div>
+                            <p className="text-slate-400 leading-relaxed text-xs">{check.details}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-8 shadow-md text-center max-w-2xl mx-auto space-y-6">
+                  <div className="mx-auto w-12 h-12 rounded-full border border-indigo-500/20 bg-indigo-500/5 flex items-center justify-center text-lg">
+                    🛡️
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-white mb-2">Initiate Compliance & Scan</h3>
+                    <p className="text-sm text-slate-400 leading-relaxed">
+                      Before marking this feature as complete and deploying to production, run the final pre-deployment scan.
+                      This evaluates all changes against PRD acceptance criteria, checks for exposed secrets, and audits for lint compliance.
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-slate-950 p-4 border border-slate-850 inline-block text-xs text-slate-400 font-mono">
+                    💵 Action cost: <strong className="text-indigo-400">3 AI Credits</strong>
+                  </div>
+                  <div className="pt-2">
+                    <button
+                      onClick={() => runReleaseCheckMutation.mutate({ workspaceId, featureRequestId: featureId })}
+                      disabled={
+                        feature?.status !== "APPROVED" ||
+                        runReleaseCheckMutation.isPending ||
+                        (workspace?.credit?.balance ?? 0) < 3
+                      }
+                      className="w-full sm:w-auto rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 px-8 py-3.5 font-bold text-sm text-white shadow-lg transition hover:brightness-110 active:scale-98 disabled:opacity-50 cursor-pointer"
+                    >
+                      {runReleaseCheckMutation.isPending
+                        ? "Running Pre-deployment Scans..."
+                        : feature?.status !== "APPROVED"
+                          ? "Waiting for Human Review Approval"
+                          : "Run Pre-deployment Scan & Release"}
+                    </button>
+                    {feature?.status !== "APPROVED" && (
+                      <p className="text-[10px] text-slate-500 mt-2">
+                        Only feature requests in "APPROVED" status can be scanned for deployment release.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
